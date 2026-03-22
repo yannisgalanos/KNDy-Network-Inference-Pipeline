@@ -77,7 +77,7 @@ Summary statistics were selected through iterative calibration (Latin hypercube 
 ### Setup
 
 ```bash
-git clone https://github.com/yourusername/kndy-inference.git
+git clone https://github.com/yannisgalanos/kndy-inference.git
 cd kndy-inference
 
 python -m venv .venv
