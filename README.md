@@ -266,7 +266,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 
-Supervised by Prof. Margaritis Voliotis (University of Exeter). Calcium imaging data from Moore et al., provided via the [Open Science Framework](https://osf.io/).
+Supervised by Prof. Margaritis Voliotis (University of Exeter). Calcium imaging data from Prof. Voliotis' collaborators).
 
 ## Software credits
 
