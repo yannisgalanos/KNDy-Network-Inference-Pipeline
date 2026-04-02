@@ -6,8 +6,9 @@ from config import SimulationConfig
 from scipy.spatial.distance import cdist
 from typing import Optional, Tuple, Dict
 
-
+pos_seed = SimulationConfig().pos_seed
 rng = np.random.default_rng(42)
+geo_rng = np.random.default_rng(pos_seed)
 
 def poisson_disc_sampling(config: SimulationConfig, m, r_max, r_min, rng):
 
@@ -66,13 +67,13 @@ def generate_neuron_positions(config: SimulationConfig):
     n_clusters = config.n_clusters
     radius = config.arena_size
     min_cluster_center_distance = config.min_cluster_center_distance
-    cluster_centers = poisson_disc_sampling(config, n_clusters, radius, min_cluster_center_distance, rng)
+    cluster_centers = poisson_disc_sampling(config, n_clusters, radius, min_cluster_center_distance, geo_rng)
     cluster_size = config.cluster_size
     cluster_radius = config.cluster_radius
     min_distance = config.min_dist
 
     for i in range(n_clusters):
-        positions_cluster_i = poisson_disc_sampling(config, cluster_size, cluster_radius, min_distance, rng)
+        positions_cluster_i = poisson_disc_sampling(config, cluster_size, cluster_radius, min_distance, geo_rng)
         center = np.array(cluster_centers[i])
         for j in range(cluster_size):
             rel_pos = np.array(positions_cluster_i[j])
@@ -94,131 +95,39 @@ def generate_connectivity(
     positions: np.ndarray,
     config: SimulationConfig,
     rng: Optional[np.random.Generator] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> np.ndarray:
     """
-    Construct the Ising coupling matrix J and binary adjacency matrix A.
- 
-    Edge probability model
-    ~~~~~~~~~~~~~~~~~~~~~~
-    1. Base kernel:  p_base(i,j) = exp(-d_ij^2 / (2 sigma^2))
-    2. Split the degree budget between intra-cluster and inter-cluster:
- 
-         f_intra = f_natural + cluster_strength * (1 - f_natural)
- 
-       where f_natural is the fraction of edges the distance kernel would
-       naturally place within clusters.  At cluster_strength=0 this is
-       purely distance-dependent; at cluster_strength=1 all edges are
-       intra-cluster.
- 
-    3. Scale intra and inter base probabilities SEPARATELY so that:
-         E[intra_degree] = mean_degree * f_intra
-         E[inter_degree] = mean_degree * (1 - f_intra)
- 
-       The distance kernel shape is preserved within each group (closer
-       pairs are still more likely to connect), but cluster_strength
-       controls the fraction of the total degree budget allocated to
-       intra-cluster connections.
- 
-    Coupling weights ~ |N(1, 0.3)| / sqrt(mean_degree)  (normalised).
- 
-    Parameters
-    ----------
-    positions : (N, 2) neuron positions (um).
-    config    : SimulationConfig carrying sigma, mean_degree, cluster_strength.
-    rng       : optional pre-seeded Generator.
- 
-    Returns
-    -------
-    J : (N, N) symmetric coupling matrix, zero diagonal.
-    A : (N, N) binary adjacency matrix.
+    Construct the Ising binary adjacency matrix A.
+
+    Edges are sampled from a Weibull distance kernel scaled so that the
+    expected mean degree equals config.mean_degree.
+
     """
     if rng is None:
         rng = np.random.default_rng(config.seed)
- 
+
     N = len(positions)
-    D = cdist(positions, positions)   # (N, N) Euclidean distances
- 
-    # ── Step 1: Base Gaussian edge-probability kernel ─────────────────────
-    base_prob = np.exp(-D ** 2 / (2.0 * config.sigma_spatial ** 2))
+    D = cdist(positions, positions)
+
+    # Weibull edge-probability kernel
+    base_prob = np.exp(-D ** config.alpha / (2.0 * config.sigma_spatial ** config.alpha))
     np.fill_diagonal(base_prob, 0.0)
- 
-    # ── Step 2: Build intra/inter masks ───────────────────────────────────
-    cluster_ids = np.array_split(np.arange(N), config.n_clusters)
-    intra_mask = np.zeros((N, N), dtype=bool)
-    for cids in cluster_ids:
-        intra_mask[np.ix_(cids, cids)] = True
-    np.fill_diagonal(intra_mask, False)
-    inter_mask = ~intra_mask
-    np.fill_diagonal(inter_mask, False)
- 
-    # ── Step 3: Compute natural intra-fraction from distance kernel ───────
-    sum_intra = base_prob[intra_mask].sum()
-    sum_inter = base_prob[inter_mask].sum()
-    sum_total = sum_intra + sum_inter
- 
-    if sum_total < 1e-12:
-        # Degenerate case: all probabilities are zero
+
+    # Scale uniformly to enforce mean_degree
+    expected_deg = base_prob.sum() / N
+    if expected_deg < 1e-12:
         return np.zeros((N, N)), np.zeros((N, N))
- 
-    f_natural = sum_intra / sum_total
- 
-    # Interpolate: at c=0 purely distance-based, at c=1 fully intra-cluster
-    c = config.cluster_strength
-    f_intra = f_natural + c * (1.0 - f_natural)
- 
-    # ── Step 4: Target degrees for each group ─────────────────────────────
-    target_intra_deg = config.mean_degree * f_intra
-    target_inter_deg = config.mean_degree * (1.0 - f_intra)
- 
-    # ── Step 5: Scale each group separately ───────────────────────────────
-    # Expected intra degree per neuron from unscaled base:
-    #   E[intra_deg] = sum_intra / N
-    # Scale factor to hit target:
-    #   s_intra = target_intra_deg / (sum_intra / N)
-    prob = np.zeros((N, N))
- 
-    exp_intra_deg = sum_intra / N
-    if exp_intra_deg > 1e-12 and target_intra_deg > 1e-12:
-        s_intra = target_intra_deg / exp_intra_deg
-        prob[intra_mask] = base_prob[intra_mask] * s_intra
- 
-    exp_inter_deg = sum_inter / N
-    if exp_inter_deg > 1e-12 and target_inter_deg > 1e-12:
-        s_inter = target_inter_deg / exp_inter_deg
-        prob[inter_mask] = base_prob[inter_mask] * s_inter
- 
-    # Clip to [0, 1] — warn if significant clipping occurs
-    n_clipped = np.sum(prob > 1.0)
-    prob = np.clip(prob, 0.0, 1.0)
+
+    prob = np.clip(base_prob * (config.mean_degree / expected_deg), 0.0, 1.0)
     np.fill_diagonal(prob, 0.0)
- 
-    if n_clipped > 0:
-        actual_expected = prob.sum() / N
-        if actual_expected < config.mean_degree * 0.9:
-            import warnings
-            warnings.warn(
-                f"Probability clipping reduced expected mean degree to "
-                f"{actual_expected:.1f} (target {config.mean_degree:.1f}).  "
-                f"Network is near saturation for this cluster_strength / "
-                f"mean_degree combination.",
-                UserWarning, stacklevel=2,
-            )
- 
-    # ── Sample adjacency (upper triangle -> symmetrise) ───────────────────
+
+    # Sample adjacency (upper triangle -> symmetrise)
     rand = rng.random((N, N))
-    A = (rand < prob).astype(np.float64)
-    A = np.triu(A, 1)
-    A = A + A.T                        # symmetric, zero diagonal
- 
-    # ── Coupling weights ──────────────────────────────────────────────────
-    W = np.abs(rng.normal(1.0, 0.3, (N, N)))
-    W = (W + W.T) / 2.0
-    scale = max(np.sqrt(config.mean_degree), 1e-3)
-    J = A * W / scale
-    J_np = np.array(J, dtype=np.float64)
-    A_np = np.array(A, dtype=np.float64)
- 
-    return J_np, A_np
+    A = np.triu(rand < prob, 1).astype(np.float64)
+    A = A + A.T
+
+
+    return np.array(A, dtype=np.float64)
 
 
 
@@ -230,7 +139,7 @@ def generate_connectivity(
 
 def simulate_kndy_network(
     config: SimulationConfig,
-    J: Optional[np.ndarray] = None,
+    A: Optional[np.ndarray] = None,
     positions: Optional[np.ndarray] = None,
     seed_override: Optional[int] = None,
 ) -> Dict[str, np.ndarray]:
@@ -240,7 +149,7 @@ def simulate_kndy_network(
     Parameters
     ----------
     config          : SimulationConfig
-    J               : (N, N) coupling matrix.  Generated from config if None.
+    A               : (N, N) coupling matrix.  Generated from config if None.
     positions       : (N, 2) positions in µm.  Generated from config if None.
     return_peptides : if True, record neuropeptide traces.
     seed_override   : replace config.seed for this call only (useful in ABC).
@@ -250,7 +159,6 @@ def simulate_kndy_network(
     dict with keys:
         'spikes'    : (T_rec, N) int8 — binary spike trains after burn-in
         'positions' : (N, 2)  float  — neuron positions
-        'J'         : (N, N)  float  — coupling matrix used
         'A'         : (N, N)  float  — binary adjacency
         'time'      : (T_rec,) float — time axis in seconds
         'peptides'  : (T_rec, 3) float [NKB, Dyn, Kiss]  (if requested)
@@ -262,10 +170,9 @@ def simulate_kndy_network(
     # ── Setup ──────────────────────────────────────────────────────────────
     if positions is None:
         positions = generate_neuron_positions(config)
-    if J is None:
-        J, A = generate_connectivity(positions, config, rng)
-    else:
-        A = (J != 0.0).astype(np.float64)
+    if A is None:
+        A = generate_connectivity(positions, config, rng)
+
     """
     Diagnostics:
 
@@ -277,7 +184,7 @@ def simulate_kndy_network(
     print("DEBUG: C++ returned, len(spikes)=", len(spikes))  # if this never prints, C++ crashed
     """
 
-    spikes = mycpp.simulate_kndy_network(config, positions, J, A)
+    spikes = mycpp.simulate_kndy_network(config, positions, A)
     spikes = np.array(spikes, dtype=np.int8)
 
     if spikes.ndim != 2:
@@ -299,7 +206,6 @@ def simulate_kndy_network(
     result = {
         "spikes":    spikes,
         "positions": positions,
-        "J":         J,
         "A":         A,
         "time":      np.arange(T, dtype=np.float32) * config.dt,
     }
@@ -361,7 +267,7 @@ for mean_deg in [20,25,30]:
 """
 
 
-
+"""
 from matplotlib import pyplot as plt
 cfg = SimulationConfig(n_neurons=52, seed=50)
 spikes = simulate_kndy_network(cfg)["spikes"]  * 60 # convert to spikes/min
@@ -374,3 +280,5 @@ figure, ax = plt.subplots()
 ax.plot(binned_time, binned_spikes.mean(axis=1))
 plt.plot()
 plt.show()
+"""
+

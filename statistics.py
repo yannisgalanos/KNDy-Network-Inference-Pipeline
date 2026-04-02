@@ -395,19 +395,97 @@ def _powerlaw_mle(data: np.ndarray, x_min: float = 1.0) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Calcium correlation statistics (bypass IPL — work on continuous traces)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _residual_correlation_stats(traces: np.ndarray) -> Dict[str, float]:
+    """
+    Correlation statistics after regressing out the global (population mean)
+    signal from each neuron's calcium trace.
+
+    Removing the global component strips out full-sync events that dominate
+    raw Pearson correlations, exposing local co-fluctuation structure that
+    reflects spatial connectivity (sigma).
+
+    Returns
+    -------
+    residual_mean_corr : mean pairwise correlation of residuals
+    residual_corr_cv   : CV of pairwise residual correlations
+                         (high = block structure = short sigma,
+                          low = uniform = long sigma)
+    """
+    T, N = traces.shape
+    if N < 3 or T < 10:
+        return {"residual_mean_corr": 0.0, "residual_corr_cv": 0.0}
+
+    pop_mean = traces.mean(axis=1)
+    pop_dot = np.dot(pop_mean, pop_mean)
+
+    # Regress out global signal from each neuron
+    residuals = np.zeros_like(traces)
+    for j in range(N):
+        if pop_dot > 1e-12:
+            slope = np.dot(traces[:, j], pop_mean) / pop_dot
+            residuals[:, j] = traces[:, j] - slope * pop_mean
+        else:
+            residuals[:, j] = traces[:, j]
+
+    fc = np.corrcoef(residuals.T)
+    np.fill_diagonal(fc, np.nan)
+    idx = np.triu_indices(N, k=1)
+    pairwise = fc[idx]
+    pairwise = pairwise[np.isfinite(pairwise)]
+
+    if len(pairwise) < 2:
+        return {"residual_mean_corr": 0.0, "residual_corr_cv": 0.0}
+
+    mean_corr = float(np.mean(pairwise))
+    std_corr = float(np.std(pairwise))
+    cv_corr = std_corr / (abs(mean_corr) + 1e-12)
+
+    return {
+        "residual_mean_corr": mean_corr,
+        "residual_corr_cv": cv_corr,
+    }
+
+
+def _fc_modularity(traces: np.ndarray) -> float:
+    """
+    Newman modularity Q computed directly on the calcium correlation matrix.
+
+    Bypasses IPL and binarisation entirely — thresholds positive correlations
+    and runs spectral bisection on the resulting graph.
+
+    This preserves spatial structure that the IPL pipeline destroys.
+    """
+    T, N = traces.shape
+    if N < 4 or T < 10:
+        return 0.0
+
+    fc = np.corrcoef(traces.T)
+    np.fill_diagonal(fc, 0.0)
+    fc = np.nan_to_num(fc, nan=0.0)
+
+    # Keep only positive correlations as edges
+    A = np.maximum(fc, 0.0)
+    return _spectral_modularity(A)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Composite summary statistic vector  (INFERENCE TARGET)
 # ─────────────────────────────────────────────────────────────────────────────
 
 STAT_NAMES = [
-    # Sync-event statistics  (3)
+    # Sync-event statistics  (2)
     "sync_frequency",
     "log_partial_ratio",
-    "mean_event_fraction",
-    # IPL coupling statistics  (5)
+    # Calcium correlation statistics  (2) — bypass IPL, target sigma
+    "log_residual_corr_cv",
+    "fc_modularity_Q",
+    # IPL coupling statistics  (4)
     "mean_coupling",
     "coupling_cv",
     "degree_cv",
-    "modularity_Q",
     "degree_gini",
 ]
 
@@ -421,9 +499,10 @@ def compute_summary_statistics(
     """
     Compute the 8-D composite summary statistic vector.
 
-    Accepts both binary spike arrays and continuous calcium (dF/F) traces.
-    Sync detection adapts thresholds automatically based on input type.
-    IPL binarises continuous traces internally before fitting.
+    Combines:
+      - 2 sync-event features (from population trace)
+      - 2 calcium correlation features (from continuous traces, bypass IPL)
+      - 4 IPL coupling features (from binarised traces)
 
     Parameters
     ----------
@@ -438,6 +517,8 @@ def compute_summary_statistics(
     """
     sync     = detect_sync_events(traces, n_mad_binarise=n_mad)
     coupling = compute_coupling_statistics(traces, ipl_C=ipl_C, n_mad=n_mad)
+    resid    = _residual_correlation_stats(traces)
+    fc_mod_Q = _fc_modularity(traces)
 
     n_full    = sync["n_full_events"]
     n_partial = sync["n_partial_events"]
@@ -446,13 +527,16 @@ def compute_summary_statistics(
     log_partial_ratio = np.log1p(raw_ratio)
 
     stats = np.array([
+        # Sync-event features (2)
         sync["sync_frequency"] / max(dt, 1e-12),
         log_partial_ratio,
-        sync["mean_event_fraction"],
+        # Calcium correlation features (2)
+        np.log1p(resid["residual_corr_cv"]),
+        fc_mod_Q,
+        # IPL coupling features (4)
         coupling["mean_coupling"],
         coupling["coupling_cv"],
         coupling["degree_cv"],
-        coupling["modularity_Q"],
         coupling["degree_gini"],
     ], dtype=np.float32)
 

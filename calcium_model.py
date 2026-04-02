@@ -184,7 +184,7 @@ def match_noise_to_data(
     }
 
 
-
+"""
 import matplotlib.pyplot as plt
 from simulation import generate_neuron_positions, simulate_kndy_network
 from config import SimulationConfig
@@ -215,3 +215,4 @@ ax.set_ylabel("Neuron")
 ax.set_title(f"Synthetic GCaMP6s dF/F  (N={N}, {t_s[-1]:.0f} s)")
 fig.tight_layout()
 plt.show()
+"""

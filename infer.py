@@ -71,12 +71,12 @@ def load_traces(path: str) -> np.ndarray:
     elif path.suffix in (".csv", ".tsv", ".txt"):
         # Detect header
         with open(path, 'r') as f:
-            first_line = f.readline().strip()
-        skip = 0
+            first_two_lines = f.readline().strip()
+        skip = 2
         try:
-            np.array(first_line.replace(',', ' ').split(), dtype=float)
+            np.array(first_two_lines.replace(',', ' ').split(), dtype=float)
         except ValueError:
-            skip = 1
+            skip = 2
 
         delimiter = '\t' if path.suffix == '.tsv' else ','
         traces = np.loadtxt(path, delimiter=delimiter, skiprows=skip)
@@ -143,7 +143,7 @@ def run_ppc(
     ppc_stats = []
 
     for k, i in enumerate(idx):
-        sigma, mean_deg, cluster_str, beta_val = samples[i]
+        sigma, mean_deg, beta_val = samples[i]
         cfg = SimulationConfig(
             n_neurons=sim_config.n_neurons,
             n_clusters=sim_config.n_clusters,
@@ -152,7 +152,7 @@ def run_ppc(
             cluster_radius=sim_config.cluster_radius,
             min_cluster_center_distance=sim_config.min_cluster_center_distance,
             sigma_spatial=float(sigma), mean_degree=float(mean_deg),
-            cluster_strength=float(cluster_str), beta_val=float(beta_val),
+            beta_val=float(beta_val),
             h0=sim_config.h0, w_NKB=sim_config.w_NKB,
             w_Dyn=sim_config.w_Dyn, dt=sim_config.dt,
             T=sim_config.T, burnin=sim_config.burnin,
@@ -241,7 +241,7 @@ def make_summary_figure(
 
     # Row 1: posterior marginals
     names = inf_config.param_names
-    units = ["um", "", "", ""]
+    units = ["um", "", ""]
     for k, (name, unit) in enumerate(zip(names, units)):
         ax = fig.add_subplot(gs[1, k])
         col = samples[:, k]
@@ -309,7 +309,7 @@ def main():
                         help="Output directory")
     parser.add_argument("--n-samples", type=int, default=1000,
                         help="Number of posterior samples")
-    parser.add_argument("--n-ppc", type=int, default=20,
+    parser.add_argument("--n-ppc", type=int, default=30,
                         help="Number of PPC simulations")
     parser.add_argument("--skip-ppc", action="store_true")
     parser.add_argument("--demo", action="store_true",
@@ -325,14 +325,14 @@ def main():
         n_neurons    = 52,
         n_clusters   = 4,
         cluster_size = 13,
-        arena_size   = 360.0,
-        cluster_radius = 135.0,
-        min_cluster_center_distance = 180.0,
+        arena_size   = 400.0,
+        cluster_radius = 80.0,
+        min_cluster_center_distance = 120.0,
         seed         = args.seed,
     )
     inf_config = InferenceConfig(
-        prior_low  = [30.0, 8.0, 0.0, 0.4],
-        prior_high = [400.0, 25.0, 0.9, 3.0],
+        prior_low  = [20.0, 5.0, 0.4],
+        prior_high = [500.0, 30.0, 3.0],
     )
 
     # ── Load model ────────────────────────────────────────────────────────

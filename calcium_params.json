@@ -1,0 +1,8 @@
+{
+  "noise_std": 0.0018,
+  "amplitude": 0.001,
+  "baseline": 0.0037,
+  "dt_imaging": 0.1,
+  "tau_rise": 0.18,
+  "tau_decay": 2.6
+}

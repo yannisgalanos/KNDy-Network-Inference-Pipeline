@@ -46,10 +46,10 @@ def _print(msg: str):
 
 # Default calcium forward model parameters (GCaMP6s)
 DEFAULT_CALCIUM_PARAMS = {
-    "dt_imaging": 6.0,       # imaging frame period (seconds) — match your data
-    "amplitude": 0.25,       # peak dF/F per spike
-    "baseline": 0.0,         # baseline fluorescence
-    "noise_std": 0.02,       # observation noise
+    "dt_imaging": 0.1,       # imaging frame period (seconds) — match your data
+    "amplitude": 0.001,       # peak dF/F per spike
+    "baseline": 0.0037,         # baseline fluorescence
+    "noise_std": 0.0018,       # observation noise
     "tau_rise": 0.18,        # GCaMP6s rise (s)
     "tau_decay": 2.6,        # GCaMP6s decay (s)
 }
@@ -63,7 +63,7 @@ def _simulate_worker(args):
     and returns summary stats as a numpy array.
     """
     theta, sim_config, seed, calcium_params = args
-    sigma, mean_deg, cluster_str, beta_val = theta
+    sigma, mean_deg, beta_val = theta
 
     cfg = SimulationConfig(
         n_neurons        = sim_config.n_neurons,
@@ -74,7 +74,6 @@ def _simulate_worker(args):
         min_cluster_center_distance = sim_config.min_cluster_center_distance,
         sigma_spatial    = float(np.clip(sigma,       1.0, 1e4)),
         mean_degree      = float(np.clip(mean_deg,    0.5, sim_config.n_neurons - 1)),
-        cluster_strength = float(np.clip(cluster_str, 0.0, 1.0)),
         beta_val         = float(np.clip(beta_val,    0.01, 10.0)),
         h0               = sim_config.h0,
         w_NKB            = sim_config.w_NKB,
@@ -103,7 +102,6 @@ class SNPEInference:
     Inferred parameters theta = [sigma, k, c, beta]:
         sigma  sigma_spatial    : spatial connectivity length-scale (um)
         k      mean_degree      : mean synaptic partners per neuron
-        c      cluster_strength : within-cluster coupling boost [0, 1]
         beta   beta_val         : Ising inverse temperature
 
     Workflow
@@ -147,7 +145,7 @@ class SNPEInference:
 
     def _simulate_one(self, theta_tensor: "torch.Tensor") -> "torch.Tensor":
         """Simulate one KNDy network, apply calcium model, return summary stats."""
-        sigma, mean_deg, cluster_str, beta_val = theta_tensor.numpy()
+        sigma, mean_deg, beta_val = theta_tensor.numpy()
         cfg = SimulationConfig(
             n_neurons        = self.sim_config.n_neurons,
             n_clusters       = self.sim_config.n_clusters,
@@ -158,7 +156,6 @@ class SNPEInference:
             sigma_spatial    = float(np.clip(sigma,       1.0, 1e4)),
             mean_degree      = float(np.clip(mean_deg,    0.5,
                                              self.sim_config.n_neurons - 1)),
-            cluster_strength = float(np.clip(cluster_str, 0.0, 1.0)),
             beta_val         = float(np.clip(beta_val,    0.01, 10.0)),
             h0               = self.sim_config.h0,
             w_NKB            = self.sim_config.w_NKB,
@@ -218,10 +215,8 @@ class SNPEInference:
                f"{self.inf_config.prior_high[0]:.0f}]  |  "
                f"k in [{self.inf_config.prior_low[1]:.1f}, "
                f"{self.inf_config.prior_high[1]:.1f}]  |  "
-               f"c in [{self.inf_config.prior_low[2]:.2f}, "
-               f"{self.inf_config.prior_high[2]:.2f}]  |  "
-               f"beta in [{self.inf_config.prior_low[3]:.2f}, "
-               f"{self.inf_config.prior_high[3]:.2f}]")
+               f"beta in [{self.inf_config.prior_low[2]:.2f}, "
+               f"{self.inf_config.prior_high[2]:.2f}]")
 
         t0 = time.time()
         thetas = self.prior.sample((num_simulations,))

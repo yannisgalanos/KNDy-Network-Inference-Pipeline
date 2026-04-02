@@ -4,7 +4,7 @@ calibration_check.py
 Pre-inference calibration: verify that the 8-D summary statistics vary
 smoothly and discriminatively across the parameter space.
 
-Includes the calcium forward model so that simulated summary statistics
+Includes the calcium forward model so that simulated summary statistic
 match the data representation used during SNPE training.
 
 Usage
@@ -62,7 +62,7 @@ DEFAULT_CALCIUM_PARAMS = {
 def _simulate_worker(args):
     """Run one simulation with calcium forward model, return summary stats."""
     theta, sim_config, seed, calcium_params = args
-    sigma, mean_deg, cluster_str, beta_val = theta
+    sigma, mean_deg, beta_val = theta
 
     cfg = SimulationConfig(
         n_neurons        = sim_config.n_neurons,
@@ -72,7 +72,6 @@ def _simulate_worker(args):
         min_cluster_center_distance = sim_config.min_cluster_center_distance,
         sigma_spatial    = float(np.clip(sigma,       1.0, 1e4)),
         mean_degree      = float(np.clip(mean_deg,    0.5, sim_config.n_neurons - 1)),
-        cluster_strength = float(np.clip(cluster_str, 0.0, 1.0)),
         beta_val         = float(np.clip(beta_val,    0.01, 10.0)),
         h0               = sim_config.h0,
         w_NKB            = sim_config.w_NKB,
@@ -102,8 +101,8 @@ def sample_prior_lhs(n_samples, prior_low, prior_high, seed=42):
 # Figures
 # ─────────────────────────────────────────────────────────────────────────────
 
-PARAM_NAMES = ["sigma_spatial", "mean_degree", "cluster_strength", "beta"]
-PARAM_UNITS = ["um", "", "", ""]
+PARAM_NAMES = ["sigma_spatial", "mean_degree", "beta"]
+PARAM_UNITS = ["um", "", ""]
 
 
 def plot_scatter_grid(thetas, stats, out_dir):
@@ -115,19 +114,22 @@ def plot_scatter_grid(thetas, stats, out_dir):
     for i in range(n_stats):
         for j in range(n_params):
             ax = axes[i, j]
-            ax.scatter(thetas[:, j], stats[:, i],
+            col = thetas[:, j]
+            if col.size == 0:
+                continue
+            ax.scatter(col, stats[:, i],
                        s=6, alpha=0.30, color="steelblue", edgecolors="none")
             n_bins = 15
-            edges = np.linspace(thetas[:, j].min(), thetas[:, j].max(), n_bins + 1)
+            edges = np.linspace(col.min(), col.max(), n_bins + 1)
             bx, by = [], []
             for b in range(n_bins):
-                mask = (thetas[:, j] >= edges[b]) & (thetas[:, j] < edges[b + 1])
+                mask = (col >= edges[b]) & (col < edges[b + 1])
                 if mask.sum() > 2:
                     bx.append((edges[b] + edges[b + 1]) / 2)
                     by.append(stats[mask, i].mean())
             if len(bx) > 2:
                 ax.plot(bx, by, "r-", lw=2, alpha=0.8)
-            rho, pval = spearmanr(thetas[:, j], stats[:, i])
+            rho, pval = spearmanr(col, stats[:, i])
             ax.set_title(f"rho={rho:.2f} (p={pval:.1e})", fontsize=7)
             if i == n_stats - 1:
                 label = PARAM_NAMES[j]
@@ -304,14 +306,14 @@ def main():
         n_neurons    = 52,
         n_clusters   = 4,
         cluster_size = 13,
-        arena_size   = 360.0,
-        cluster_radius = 135.0,
-        min_cluster_center_distance = 180.0,
+        arena_size   = 400.0,
+        cluster_radius = 80.0,
+        min_cluster_center_distance = 120.0,
         seed         = args.seed,
     )
     inf_config = InferenceConfig(
-        prior_low  = [30.0, 8.0, 0.0, 0.4],
-        prior_high = [400.0, 25.0, 0.9, 3.0],
+        prior_low  = [20.0, 5.0, 0.4],
+        prior_high = [600.0, 30.0, 3.0],
     )
     prior_low  = np.array(inf_config.prior_low)
     prior_high = np.array(inf_config.prior_high)
@@ -320,8 +322,7 @@ def main():
           f"arena={sim_config.arena_size}um")
     print(f"Prior: sigma [{prior_low[0]}, {prior_high[0]}], "
           f"k [{prior_low[1]}, {prior_high[1]}], "
-          f"c [{prior_low[2]}, {prior_high[2]}], "
-          f"beta [{prior_low[3]}, {prior_high[3]}]")
+          f"beta [{prior_low[2]}, {prior_high[2]}]")
 
     # ── Sample & simulate ─────────────────────────────────────────────────
     n = args.n_samples

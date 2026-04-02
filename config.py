@@ -81,7 +81,7 @@ class SimulationConfig:
     # ── Network geometry ──────────────────────────────────────────────────
     
 
-    arena_size: float = 360.0
+    arena_size: float = 400.0
     """Spatial extent of the modelled ARC region (µm)."""
 
     n_clusters: int = 4
@@ -93,16 +93,20 @@ class SimulationConfig:
     min_dist: float = 15.0
     max_attempts: int = 80
     cluster_size: int = 13 # Use // for integer division
-    cluster_radius: float = 140.0
-    min_cluster_center_distance: float = 200.0
+    cluster_radius: float = 80.0
+    min_cluster_center_distance: float = 120.0
 
     n_neurons: int = n_clusters * cluster_size
     """Number of modelled KNDy neurons in the ARC slice."""
 
+    pos_seed: int  =  12
+    """set seed for fixed positions"""
+
+
     
 
     # ── Connectivity [INFER] ──────────────────────────────────────────────
-    sigma_spatial: float = 180.0       #300 is a good value
+    sigma_spatial: float = 140.0       #300 is a good value
     """Spatial length-scale of the Gaussian distance-dependent edge
     probability (µm).  Larger → longer-range connectivity."""
 
@@ -110,9 +114,15 @@ class SimulationConfig:
     """Expected number of synaptic partners per neuron.  Controls
     network density independently of σ."""
 
-    cluster_strength: float = 0.4          #0.7 is a good value
-    """Extra within-cluster coupling boost in [0, 1].  0 → purely
-    distance-dependent graph;  1 → fully connected clusters."""
+    alpha: float = 1.5 
+    """ Weibull kernel exponent. Varies between 1 and 2.
+    alpha = 1: exponential 
+    alpha = 2: gaussian
+    1.5 gives a good compromise between modular and all-to-all graph structures
+    and allows tuning the connectivity density of the graph using only sigma_spatial,
+    eliminating cluster_strength from the design.
+    """
+
 
     # Integration parameters
     dt: float = 1.0 / n_neurons        # individual spin flip timestep
@@ -185,16 +195,16 @@ class InferenceConfig:
     abc_n_posterior_samples: int = 1000
     """Final posterior samples drawn from the weighted particle cloud."""
 
-    # Prior bounds — [sigma_spatial, mean_degree, cluster_strength, beta]
+    # Prior bounds — [sigma_spatial, mean_degree, beta]
     prior_low: List[float] = field(
-        default_factory=lambda: [30.0, 8.0, 0.0, 0.4]
+        default_factory=lambda: [20.0, 5.0, 0.4]
     )
     prior_high: List[float] = field(
-        default_factory=lambda: [400.0, 25.0, 0.9, 3.0]
+        default_factory=lambda: [500.0, 30.0, 3.0]
     )
     param_names: List[str] = field(
         default_factory=lambda: [
-            "sigma_spatial", "mean_degree", "cluster_strength", "beta"
+            "sigma_spatial", "mean_degree", "beta"
         ]
     )
 

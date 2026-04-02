@@ -81,14 +81,14 @@ def main():
         n_neurons    = 52,
         n_clusters   = 4,
         cluster_size = 13,
-        arena_size   = 360.0,
-        cluster_radius = 135.0,
-        min_cluster_center_distance = 180.0,
+        arena_size   = 400.0,
+        cluster_radius = 80.0,
+        min_cluster_center_distance = 120.0,
         seed         = args.seed,
     )
     inf_config = InferenceConfig(
-        prior_low  = [30.0, 8.0, 0.0, 0.4],
-        prior_high = [400.0, 25.0, 0.9, 3.0],
+        prior_low  = [20.0, 5.0, 0.4],
+        prior_high = [500.0, 30.0, 3.0],
     )
 
     # ── Train & save ──────────────────────────────────────────────────────
